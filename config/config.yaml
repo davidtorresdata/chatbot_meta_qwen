@@ -1,0 +1,106 @@
+# ==================================================================
+# WhatsApp Chatbot - main configuration
+# Edit this file to tune behaviour. Secrets live in .env.
+# Everything below can also be overridden with environment variables
+# (see .env.example).
+# ==================================================================
+
+app:
+  name: "Susy Fertrac"
+  company: "Fertrac"
+  language: "es"            # conversation language used in prompts
+
+# Conversation settings
+agent:
+  history_size: 6           # number of prior turns kept per conversation
+  welcome_message: "Hello! I am the virtual assistant of Fertrac. Ask me about our products, hours or returns."
+  fallback_message: "I don't have that information yet. Visit our website https://acme.example.com or talk to an agent on WhatsApp: https://wa.me/15551234567"
+  refusal_message: "I am a virtual assistant for ACME Corp. I can only answer questions about our products and services, and I don't discuss how I work internally."
+
+# Retrieval / anti-hallucination settings
+knowledge:
+  top_k: 5                  # number of chunks retrieved per question
+  score_threshold: 0.35     # min similarity (0-1) for a chunk to be usable; below -> fallback
+  enable_grounding_check: true   # verify the answer text overlaps the retrieved knowledge
+  grounding_min_overlap: 0.30    # min fraction of answer words found in the knowledge
+
+# Qwen LLM (OpenAI-compatible endpoint)
+llm:
+  temperature: 0.3          # 0 = deterministic, 1 = creative. Override via TEMPERATURE env
+  max_tokens: 512
+  top_p: 0.9
+  timeout_seconds: 90
+
+# Embeddings
+embeddings:
+  backend: "openai_compat"  # openai_compat | local (sentence-transformers)
+  model: "BAAI/bge-small-en-v1.5"
+
+# Knowledge storage (local LanceDB)
+storage:
+  lancedb_path: "data/lancedb"
+  table_name: "knowledge_base"
+  chunk_size: 600           # characters per knowledge chunk at ingestion
+  chunk_overlap: 100
+
+# WhatsApp Meta Cloud API
+whatsapp:
+  api_version: "v21.0"
+  graph_base_url: "https://graph.facebook.com"
+
+# ----------------------------------------------------------------
+# Conversation tree: markdown flows (forms, closed answers, human
+# redirects) defined in tree.md. When a flow matches, it runs before
+# the RAG answer. See docs/CONVERSATION_TREE.md.
+# ----------------------------------------------------------------
+tree:
+  enabled: true
+  path: "tree.md"
+  menu_keywords: ["menu", "start", "help"]   # commands that show the flow list
+  redirect_message: "Continue with a human agent here:"  # button body when a redirect step has no - message:
+  max_steps: 30          # safety limit on steps executed per turn
+
+# ----------------------------------------------------------------
+# Redirects: detect intents and push the client to a website or to
+# another WhatsApp number/vendor.
+# Each rule: keywords (match on the raw message), a message and
+# one of: url (website) or whatsapp (full international number).
+# Rules are evaluated in order; the first match wins.
+# ----------------------------------------------------------------
+redirects:
+  enabled: true
+  rules:
+    - keywords: ["price", "pricing", "cost", "buy", "purchase", "precio", "costo"]
+      message: "You can see our current pricing here:"
+      url: "https://acme.example.com/pricing"
+    - keywords: ["human", "person", "agent", "sales", "talk to someone", "asesor", "ventas"]
+      message: "Talk to one of our sales agents:"
+      whatsapp: "15551234567"
+    - keywords: ["website", "site", "page", "web", "pagina", "sitio"]
+      message: "Visit our website:"
+      url: "https://acme.example.com"
+  default_url: "https://acme.example.com"
+  default_whatsapp: "15551234567"
+
+# ----------------------------------------------------------------
+# Conversation registry: records everyone who contacts the bot, with
+# hora, numero, nombre, ciudad, empresa, pregunta, respuesta.
+# backend: none | sqlite | google_sheets  (also via CONVERSATION_LOG_BACKEND)
+# Full setup guide (incl. Google service account): docs/CONVERSATION_REGISTRY.md
+# ----------------------------------------------------------------
+conversation_log:
+  enabled: false
+  backend: "sqlite"                     # none | sqlite | google_sheets
+  columns: ["hora", "numero", "nombre", "ciudad", "empresa", "pregunta", "respuesta"]
+  db_path: "data/conversation_log.sqlite3"   # sqlite backend (./data is persisted)
+  contacts_file: "config/contacts.json"      # optional: enrich nombre/ciudad/empresa
+  spreadsheet_id: "1GB9LaRtZgtw4JEyK33uDH8IweOVh7aB_fv8ohjIhGcM"  # google_sheets
+  worksheet: "Sheet1"                        # google_sheets: tab name
+  # google_sheets authentication:
+  #   service_account (default) -> CONVERSATION_LOG_GOOGLE_CREDENTIALS_FILE
+  #   oauth_user                -> client secret + one-time login token
+  google_auth_mode: "service_account"        # service_account | oauth_user
+  google_credentials_file: "/app/credentials/gspread-sa.json"  # service_account mode
+  google_client_secret_file: ""              # oauth_user mode: OAuth client secret
+  google_token_file: "data/gspread_authorized_user.json"  # oauth_user mode
+  timezone: ""                              # e.g. America/Bogota ; empty = UTC

@@ -1,0 +1,26 @@
+# Cloudflare Tunnel overlay: exposes the bot on a real HTTPS domain
+# (bot.fertrac.com) even behind NAT/CGNAT. Cloudflare terminates TLS at the
+# edge and connects back to Caddy running here in local mode.
+#
+# One-time setup (host, PowerShell):
+#   & "$env:LOCALAPPDATA\cloudflared\cloudflared.exe" tunnel login
+#   & "$env:LOCALAPPDATA\cloudflared\cloudflared.exe" tunnel create fertrac
+#   & "$env:LOCALAPPDATA\cloudflared\cloudflared.exe" tunnel route dns fertrac bot.fertrac.com
+# then copy the generated <tunnel-id>.json path into
+# deploy/cloudflared/config.yml (credentials-file) and adjust the hostname.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.caddy.yml -f docker-compose.tunnel.yml up -d
+#
+# Requires Docker Desktop's host.docker.internal to reach Caddy on 8080.
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    volumes:
+      - ./deploy/cloudflared/config.yml:/home/nonroot/.cloudflared/config.yml:ro
+      - ${USERPROFILE}/.cloudflared/3b788127-936d-464a-a4ba-b84854d68e45.json:/home/nonroot/.cloudflared/3b788127-936d-464a-a4ba-b84854d68e45.json:ro
+    depends_on:
+      - caddy

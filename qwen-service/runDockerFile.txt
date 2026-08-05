@@ -1,0 +1,146 @@
+=================================================================
+ HOW TO RUN THE QWEN 3.5 CHAT SERVICE (Docker)
+=================================================================
+
+This folder contains a Docker image that serves Qwen 3.5 behind an
+OpenAI-compatible endpoint (vLLM). It is the "LLM" that the WhatsApp
+chatbot calls through its LLM_BASE_URL.
+
+NOTE: this vLLM image is intended for **NVIDIA GPU servers**. For CPU-only
+servers (no GPU), the root docker-compose.yml already runs Ollama with
+qwen3.5:4b + bge-m3 and is the recommended path — see the root README.
+The CPU vLLM override below still exists but is a fallback.
+
+Files
+-----
+  Dockerfile            Ubuntu 24.04 base image + vLLM (GPU or CPU)
+  entrypoint.sh         launcher; all options are environment variables
+  docker-compose.yml    GPU deployment (recommended when GPU available)
+  docker-compose.cpu.yml CPU-only override (vLLM fallback, needs ~15 GB RAM)
+  .env.example          template for your configuration
+
+-----------------------------------------------------------------
+ 1) CONFIGURE
+-----------------------------------------------------------------
+   cp .env.example .env
+   Edit .env and set:
+     - HF_TOKEN = your Hugging Face access token
+                  (Qwen3.5 is a gated model, the token is required)
+     - MODEL_NAME = the Qwen3.5 repo you want to serve
+     - MAX_MODEL_LEN, GPU_MEMORY_UTILIZATION as needed
+
+   SECURITY: the real token must ONLY live in .env (git-ignored).
+   If it is ever shared or committed, rotate it immediately at
+   https://huggingface.co/settings/tokens
+
+-----------------------------------------------------------------
+ 2) GPU OR CPU? (CHOOSE ONE)
+-----------------------------------------------------------------
+   GPU server (recommended):
+     - NVIDIA GPU with CUDA driver
+     - nvidia-container-toolkit installed:
+         sudo apt-get install -y nvidia-container-toolkit
+         sudo nvidia-ctk runtime configure --runtime=docker
+         sudo systemctl restart docker
+     - verify the GPU is visible to Docker:
+         docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
+
+   CPU-only server:
+     - no NVIDIA GPU, more RAM is better (see sizing below)
+     - use the CPU compose override (section 4B)
+
+-----------------------------------------------------------------
+ 3) BUILD THE IMAGE
+-----------------------------------------------------------------
+   GPU:
+     docker compose build
+     (first build downloads torch + vLLM, several GB, takes minutes)
+
+   CPU-only alternative:
+     docker compose -f docker-compose.yml -f docker-compose.cpu.yml build
+
+-----------------------------------------------------------------
+ 4) RUN
+-----------------------------------------------------------------
+   4A) GPU:
+     docker compose up -d
+
+     On first start the model (~20 GB for 35B) downloads from Hugging
+     Face into ./models and is cached there for later runs.
+     Check readiness:
+       docker compose logs -f qwen
+       curl http://localhost:8001/health          -> {"status": "ok"}
+
+   4B) CPU ONLY (no NVIDIA GPU) — PREFERRED: USE OLLAMA
+     Run the root stack instead (docker compose up -d): it serves
+     qwen3.5:4b + bge-m3 on CPU via Ollama, fits in ~8 GB RAM.
+
+     vLLM CPU fallback (only if you must use this image):
+     Use the CPU override AND a small model. In .env set:
+       MODEL_NAME=Qwen/Qwen3.5-4B        (4B ~10 GB RAM, 9B ~18 GB RAM)
+       MAX_MODEL_LEN=8192
+     then:
+       docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d --build
+
+     The CPU image uses vllm-cpu (no --device flag; CPU wheels auto-select).
+     Expect slow generation and heavy RAM: warm-up alone peaks ~14 GB, so
+     this host (~15 GB RAM) is too small for it. If OOM-killed, use Ollama.
+
+-----------------------------------------------------------------
+ 5) TEST THE ENDPOINT
+-----------------------------------------------------------------
+   curl http://localhost:8001/v1/models
+
+   curl http://localhost:8001/v1/chat/completions \
+     -H "Content-Type: application/json" \
+     -d '{
+          "model": "<MODEL_NAME you set>",
+          "messages": [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user",   "content": "What is the return policy for ACME widgets?"}
+          ],
+          "temperature": 0.3,
+          "max_tokens": 256
+        }'
+
+-----------------------------------------------------------------
+ 6) CONNECT THE WHATSAPP CHATBOT
+-----------------------------------------------------------------
+   The chatbot project reads these variables (in the root .env):
+     LLM_BASE_URL=http://localhost:8001/v1
+     LLM_API_KEY=EMPTY
+     LLM_MODEL=<MODEL_NAME you set>
+   Set LLM_MODEL to the exact value of MODEL_NAME.
+
+-----------------------------------------------------------------
+ 7) STOP
+-----------------------------------------------------------------
+   docker compose down          (keep model cache on disk)
+   docker compose down -v       (delete the model cache too)
+
+-----------------------------------------------------------------
+ TROUBLESHOOTING
+-----------------------------------------------------------------
+ "Triton is installed but 0 active driver(s) found ..."
+ "RuntimeError ... Cannot use CUDA ..."
+     The GPU build of vLLM found no GPU inside the container.
+     Either the server has no NVIDIA GPU (use section 4B / CPU) or
+     the GPU is not passed to Docker (reinstall nvidia-container-toolkit
+     and verify with the nvidia-smi test in section 2).
+
+ 401 / gated model during download
+     HF_TOKEN missing or no access -> check HF_TOKEN in .env.
+
+ CUDA out of memory
+     Lower GPU_MEMORY_UTILIZATION / MAX_MODEL_LEN, or use an
+     FP8/Int4 variant (e.g. Qwen/Qwen3.5-35B-A3B-FP8).
+
+ Slow CPU generation
+     Normal on CPU. Use Qwen/Qwen3.5-4B or smaller; set
+     VLLM_CPU_KVCACHE_SPACE (GB) in the cpu override.
+
+ Model downloads every restart
+     Ensure ./models (or ./qwen-service/models) volume is on
+     persistent disk.
+
+=================================================================

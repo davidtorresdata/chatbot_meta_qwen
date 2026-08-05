@@ -1,0 +1,46 @@
+# Optional Caddy reverse proxy service (compose overlay).
+#
+# Works out of the box on http://localhost:8080 (local testing, no domain).
+# For production HTTPS:
+#   1. Set CADDY_DOMAIN=bot.example.com in .env
+#   2. Point DNS, open firewall ports 80/443
+#   3. Uncomment the 80/443 mappings below
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
+#   docker compose -f docker-compose.yml -f docker-compose.caddy.yml logs -f caddy
+
+services:
+  caddy:
+    image: caddy:latest
+    container_name: caddy
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Default: local HTTP on :8080 for ANY host (so a Cloudflare Tunnel that
+      # keeps the real Host, e.g. bot.fertrac.com, still reaches the upstream).
+      # Production: set CADDY_DOMAIN=bot.example.com in .env.
+      CADDY_DOMAIN: ${CADDY_DOMAIN:-http://:8080}
+      # Upstream chatbot (service name inside the compose network).
+      # Override with CADDY_UPSTREAM=127.0.0.1:8000 for host-run Caddy.
+      CADDY_UPSTREAM: ${CADDY_UPSTREAM:-whatsapp-qwen-chatbot:8000}
+    ports:
+      - "8080:8080"          # local default (works out of the box)
+      - "80:80"              # production HTTPS: required for Let's Encrypt (http-01) + redirect
+      - "443:443"            # production HTTPS: serves the certificate
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data     # Let's Encrypt certificates persist here
+      - caddy-config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      - chatbot
+
+volumes:
+  caddy-data:
+  caddy-config:

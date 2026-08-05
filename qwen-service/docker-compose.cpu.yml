@@ -1,0 +1,24 @@
+# =====================================================================
+# CPU override for the Qwen service.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d --build
+#
+# Builds the image with the CPU engine (vllm-cpu), removes the GPU
+# reservation and tunes memory for a CPU-only server.
+# IMPORTANT: for CPU, also set a small model, e.g. export MODEL_NAME=Qwen/Qwen3.5-4B
+# =====================================================================
+services:
+  qwen:
+    build:
+      args:
+        VLLM_DEVICE: cpu
+    environment:
+      MODEL_NAME: ${MODEL_NAME:-Qwen/Qwen3.5-4B}
+      MAX_MODEL_LEN: ${MAX_MODEL_LEN:-4096}
+      GPU_MEMORY_UTILIZATION: ${GPU_MEMORY_UTILIZATION:-0.70}
+      # Keep the KV cache small: on a 16 GB host the 4B bf16 weights
+      # (~8.5 GB) + a big KV cache + compile workspace OOMs the worker.
+      VLLM_CPU_KVCACHE_SPACE: ${VLLM_CPU_KVCACHE_SPACE:-2}
+    # remove the GPU reservation from the base file
+    deploy: !reset {}

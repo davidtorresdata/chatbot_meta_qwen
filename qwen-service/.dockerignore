@@ -1,0 +1,5 @@
+.env
+models
+data
+.git
+*.md

@@ -1,0 +1,33 @@
+services:
+  qwen:
+    build:
+      context: .
+      args:
+        # "gpu" (default) = CUDA build. For CPU-only servers use:
+        #   docker compose -f docker-compose.yml -f docker-compose.cpu.yml up -d --build
+        VLLM_DEVICE: ${VLLM_DEVICE:-gpu}
+    container_name: qwen-service
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MODEL_NAME: ${MODEL_NAME:-Qwen/Qwen3.5-35B-A3B}
+      PORT: 8000
+      MAX_MODEL_LEN: ${MAX_MODEL_LEN:-32768}
+      GPU_MEMORY_UTILIZATION: ${GPU_MEMORY_UTILIZATION:-0.90}
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+    ports:
+      # host port 8001 -> container port 8000 (matches LLM_BASE_URL default)
+      - "8001:8000"
+    volumes:
+      # persistent model cache: download once, reuse on restarts
+      - ./models:/models
+      - ./data:/data
+    # GPU passthrough (requires nvidia-container-toolkit on the host)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

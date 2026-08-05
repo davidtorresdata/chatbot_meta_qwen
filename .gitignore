@@ -1,0 +1,15 @@
+.env
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+data/
+logs/
+.git/
+
+# Qwen service
+qwen-service/.env
+qwen-service/models/
+qwen-service/data/

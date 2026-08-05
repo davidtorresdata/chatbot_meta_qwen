@@ -1,0 +1,42 @@
+# Reverse proxy that gives the chatbot a public HTTPS webhook endpoint.
+#
+# ---------------------------------------------------------------------
+# WORKS OUT OF THE BOX (local testing, no domain or certificate needed):
+#
+#     docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
+#     curl http://localhost:8080/health
+#
+# Caddy listens on :8080 for ANY Host and forwards to the chatbot container on
+# port 8000. No DNS, no firewall changes, no certs. This also makes it the
+# correct origin for a Cloudflare Tunnel (see docker-compose.tunnel.yml and
+# deploy/README.md), whose requests carry the real Host (bot.fertrac.com).
+#
+# ---------------------------------------------------------------------
+# PRODUCTION (HTTPS with automatic Let's Encrypt certificates):
+#
+#   1. In .env set the domain, e.g.   CADDY_DOMAIN=bot.example.com
+#   2. Point a DNS A record at this machine's public IP.
+#   3. Uncomment the "80:80" and "443:443" port mappings in
+#      docker-compose.caddy.yml and open those ports in the firewall.
+#   4. Run the same command above. Caddy obtains the certificate and
+#      redirects port 80 -> 443 automatically.
+#
+#   Meta Callback URL: https://<CADDY_DOMAIN>/webhook
+#   Meta Verify token: WHATSAPP_VERIFY_TOKEN from .env
+# ---------------------------------------------------------------------
+
+# Bind to any Host on port 8080 (http://:8080) so requests proxied through a
+# Cloudflare Tunnel keep their real Host (e.g. bot.fertrac.com) and still reach
+# the upstream. With CADDY_DOMAIN set (direct HTTPS mode) this site becomes that
+# domain with automatic Let's Encrypt on 80/443.
+{$CADDY_DOMAIN:http://:8080} {
+	# Upstream = chatbot container by default (CADDY_UPSTREAM env override;
+	# use 127.0.0.1:8000 when running Caddy as a bare process on the host).
+	reverse_proxy {$CADDY_UPSTREAM:whatsapp-qwen-chatbot:8000}
+
+	# Do not let Caddy re-encode or buffer the body before forwarding: the bot
+	# must hash the exact raw body to verify the X-Hub-Signature-256 header.
+	request_body {
+		max_size 1MB
+	}
+}

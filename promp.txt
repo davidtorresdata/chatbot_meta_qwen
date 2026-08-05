@@ -1,0 +1,31 @@
+<task>
+Build local vLLM which run QWEN and expose 
+</task>
+<objectives>
+<objective1>
+The code has to be develop in python
+</objective1>
+<objective2>
+the patter design has to be modular.
+</objective2>
+<objective3>
+the base knowledge has to be scalable in local
+</objective3>
+<objective4>
+The process has to include a docker file to run in server
+</objective4>
+<objective5>
+The process has to be easy modify the temperature pf the conversation and redirect the client to sites or another WhatsApp vendor
+</objective5>
+</objectives>
+<restrictions>
+<1>
+the base knowledge has to avoid hallucinations. 
+</1>
+<2>
+the base qwen never has to respond about how it was build. 
+</2>
+<3>
+The base qwen never has to respond information out from the knowledge. 
+</3>
+<restrictions>
