@@ -521,6 +521,30 @@ For a local LLM, install Ollama and `ollama pull qwen3.5:4b bge-m3`, then set
   any message containing that word, shadowing the RAG answer. Keep flow
   keywords specific (see `docs/CONVERSATION_TREE.md`).
 
+## Knowledge graph (graphify)
+
+`graphify-out/` holds a queryable knowledge graph of the whole repository,
+built with [graphify](https://github.com/Graphify-Labs/graphify): code is parsed
+with tree-sitter (AST, deterministic) and the documentation/config files are
+linked to the code they describe (e.g. `docs/OPERATIONS.md` → *Mailbox per
+phone queue* → `LocalDispatcher` / `RedisDispatcher`).
+
+| File | Use |
+|---|---|
+| `graphify-out/graph.html` | Interactive graph — open in any browser |
+| `graphify-out/GRAPH_REPORT.md` | Hubs, communities (named in Spanish), surprising links, suggested questions |
+| `graphify-out/graph.json` | Full graph for `graphify query / path / explain / affected` |
+
+```bash
+graphify explain "RedisDispatcher"          # a node and its neighbours
+graphify path "create_app()" "QwenClient"    # how two things connect
+graphify affected "Settings"                 # what a change would impact
+```
+
+**Keep it current**: every PR that changes code or docs must refresh the
+graph (`graphify update .` for code; re-run the documentation pass when docs
+change). Stale graphs are worse than none.
+
 ## Project layout
 
 ```
@@ -555,6 +579,7 @@ For a local LLM, install Ollama and `ollama pull qwen3.5:4b bge-m3`, then set
 │   ├── README.md           # reverse-proxy + firewall guide
 │   └── test-webhook.ps1    # webhook test suite (health + signature checks)
 ├── docs/                   # user manual, technical doc, OPERATIONS, how-to guides
+├── graphify-out/           # knowledge graph of code + docs (graph.html, GRAPH_REPORT.md, graph.json)
 ├── tests/                  # pytest suite
 ├── qwen-service/           # vLLM chat service (GPU-only, NVIDIA)
 ├── .github/workflows/ci.yml  # CI: tests (+redis), secrets scan, image build
