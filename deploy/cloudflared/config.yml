@@ -1,10 +1,10 @@
 # Cloudflare Tunnel config used when cloudflared runs as a Docker container
-# (docker-compose.tunnel.yml). Keep Caddy in local mode (CADDY_DOMAIN unset) and
-# let the tunnel forward HTTPS -> http://host.docker.internal:8080 (Caddy).
+# (docker-compose.tunnel.yml). Keep Caddy in local mode (CADDY_DOMAIN unset);
+# the tunnel forwards HTTPS -> http://caddy:8080 inside the compose network.
 tunnel: fertrac
-credentials-file: /home/nonroot/.cloudflared/3b788127-936d-464a-a4ba-b84854d68e45.json
+credentials-file: /etc/cloudflared/credentials.json
 
 ingress:
   - hostname: bot.fertrac.com
-    service: http://host.docker.internal:8080
+    service: http://caddy:8080
   - service: http_status:404

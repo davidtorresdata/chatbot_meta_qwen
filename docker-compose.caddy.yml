@@ -4,7 +4,7 @@
 # For production HTTPS:
 #   1. Set CADDY_DOMAIN=bot.example.com in .env
 #   2. Point DNS, open firewall ports 80/443
-#   3. Uncomment the 80/443 mappings below
+#   3. Open ports 80/443 in the firewall
 #
 # Usage:
 #   docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
@@ -12,7 +12,7 @@
 
 services:
   caddy:
-    image: caddy:latest
+    image: caddy:${CADDY_VERSION:-2.11}
     container_name: caddy
     restart: unless-stopped
     env_file:
@@ -24,9 +24,9 @@ services:
       CADDY_DOMAIN: ${CADDY_DOMAIN:-http://:8080}
       # Upstream chatbot (service name inside the compose network).
       # Override with CADDY_UPSTREAM=127.0.0.1:8000 for host-run Caddy.
-      CADDY_UPSTREAM: ${CADDY_UPSTREAM:-whatsapp-qwen-chatbot:8000}
+      CADDY_UPSTREAM: ${CADDY_UPSTREAM:-chatbot:8000}
     ports:
-      - "8080:8080"          # local default (works out of the box)
+      - "127.0.0.1:8080:8080"  # local mode: host-only (the tunnel reaches caddy:8080 internally)
       - "80:80"              # production HTTPS: required for Let's Encrypt (http-01) + redirect
       - "443:443"            # production HTTPS: serves the certificate
     volumes:

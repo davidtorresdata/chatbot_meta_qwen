@@ -1,0 +1,350 @@
+{
+  "uid": "metabot",
+  "title": "Meta Bot - Operación",
+  "timezone": "America/Bogota",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Backlog de la cola",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "metabot-prom"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 8,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "metabot-prom"
+          },
+          "expr": "sum(metabot_queue_pending)",
+          "legendFormat": "pendientes"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "metabot-prom"
+          },
+          "expr": "sum(metabot_queue_inflight)",
+          "legendFormat": "en proceso"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Circuito LLM abierto",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "metabot-prom"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 8,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "metabot-prom"
+          },
+          "expr": "max(metabot_circuit_open{name=\"llm\"})",
+          "legendFormat": "abierto"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Mensajes rechazados (5m)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "metabot-prom"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 8,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "metabot-prom"
+          },
+          "expr": "sum by (reason) (increase(metabot_messages_rejected_total[5m]))",
+          "legendFormat": "{{reason}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Mensajes recibidos / s",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "metabot-prom"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "metabot-prom"
+          },
+          "expr": "sum by (kind) (rate(metabot_messages_received_total[5m]))",
+          "legendFormat": "{{kind}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "metabot-prom"
+          },
+          "expr": "sum(rate(metabot_messages_duplicate_total[5m]))",
+          "legendFormat": "duplicados"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Respuestas por tipo / s",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "metabot-prom"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "metabot-prom"
+          },
+          "expr": "sum by (action, outcome) (rate(metabot_messages_processed_total[5m]))",
+          "legendFormat": "{{action}} {{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Latencia de respuesta p50 / p95",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "metabot-prom"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "metabot-prom"
+          },
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(metabot_processing_seconds_bucket[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "metabot-prom"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(metabot_processing_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "metabot-prom"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(metabot_queue_wait_seconds_bucket[5m])))",
+          "legendFormat": "espera en cola p95"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "LLM: latencia p95 y errores",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "metabot-prom"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "metabot-prom"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(metabot_llm_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "metabot-prom"
+          },
+          "expr": "sum by (reason) (rate(metabot_llm_errors_total[5m]))",
+          "legendFormat": "error {{reason}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Errores de envío a Meta",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "metabot-prom"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "metabot-prom"
+          },
+          "expr": "sum by (status) (rate(metabot_meta_send_errors_total[5m]))",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Registro: registros descartados",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "metabot-prom"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 22,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "metabot-prom"
+          },
+          "expr": "sum(increase(metabot_registry_dropped_total[1h]))",
+          "legendFormat": "última hora"
+        }
+      ]
+    }
+  ],
+  "tags": [
+    "metabot"
+  ]
+}

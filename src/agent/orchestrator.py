@@ -19,12 +19,15 @@ from typing import TYPE_CHECKING
 
 from src.agent.guardrails import Guardrails
 from src.agent.prompts import build_system_prompt
+from src.state.memory import MemoryStateStore
+from src.utils.pii import mask_phone
 
 if TYPE_CHECKING:
     from src.config import RedirectRule, Settings
     from src.knowledge.embedding import EmbeddingProvider
     from src.knowledge.vector_store import VectorStore
     from src.llm.qwen import QwenClient
+    from src.state.base import StateStore
 
 logger = logging.getLogger(__name__)
 
@@ -58,19 +61,32 @@ class WhatsAppOrchestrator:
         vector_store: "VectorStore",
         embedder: "EmbeddingProvider",
         qwen: "QwenClient",
-        max_conversations: int = 10_000,
+        state_store: "StateStore | None" = None,
     ):
         self._settings = settings
         self._vector_store = vector_store
         self._embedder = embedder
         self._qwen = qwen
         self._guardrails = Guardrails(settings)
+        # Working copies only live for the duration of one message; the source of
+        # truth is the state store (bounded + TTL in memory, or shared in Redis).
         self._conversations: dict[str, Conversation] = {}
-        self._max_conversations = max_conversations
+        self._state = state_store if state_store is not None else MemoryStateStore(
+            settings.state.conversation_ttl_seconds, settings.state.max_conversations
+        )
         self._tree = self._build_tree()
 
     # ------------------------------------------------------------------ API
     async def handle_message(self, phone: str, text: str) -> ReplyAction:
+        """Process one message. Callers must not run two calls for the same
+        phone concurrently (the dispatcher guarantees per-phone ordering)."""
+        await self._load_state(phone)
+        try:
+            return await self._handle(phone, text)
+        finally:
+            await self._save_state(phone)
+
+    async def _handle(self, phone: str, text: str) -> ReplyAction:
         text = text.strip()
         if not text:
             return self._fallback("")
@@ -115,16 +131,43 @@ class WhatsAppOrchestrator:
         )
 
         if not self._guardrails.is_grounded(answer, context_texts):
-            logger.info("Answer rejected by grounding check for %s", phone)
+            logger.info("Answer rejected by grounding check for %s", mask_phone(phone))
             return self._fallback(text)
 
         conversation.add_turn(text, answer)
         return ReplyAction(type="text", message=answer)
 
-    def reset_conversation(self, phone: str) -> None:
+    async def reset_conversation(self, phone: str) -> None:
         self._conversations.pop(phone, None)
         if self._tree is not None:
             self._tree.reset_conversation(phone)
+        await self._state.delete(phone)
+
+    # ---------------------------------------------------------------- state
+    async def _load_state(self, phone: str) -> None:
+        snapshot = await self._state.get(phone) or {}
+        history = snapshot.get("history") or []
+        if history:
+            self._conversations[phone] = Conversation(phone, list(history))
+        if self._tree is not None:
+            self._tree.import_session(phone, snapshot.get("tree"))
+
+    async def _save_state(self, phone: str) -> None:
+        conversation = self._conversations.pop(phone, None)
+        tree = None
+        if self._tree is not None:
+            tree = self._tree.export_session(phone)
+            self._tree.forget(phone)
+        if conversation:
+            conversation.trim(self._settings.agent.history_size)
+        history = conversation.history if conversation else []
+        try:
+            if history or tree:
+                await self._state.set(phone, {"history": history, "tree": tree})
+            else:
+                await self._state.delete(phone)
+        except Exception:
+            logger.exception("Failed to persist conversation state for %s", mask_phone(phone))
 
     @property
     def fallback_message(self) -> str:

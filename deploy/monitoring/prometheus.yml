@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: metabot
+    metrics_path: /metrics
+    # Service DNS name: resolves to every chatbot replica in the compose network.
+    dns_sd_configs:
+      - names: ["chatbot"]
+        type: A
+        port: 8000

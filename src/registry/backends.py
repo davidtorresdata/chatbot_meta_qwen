@@ -42,6 +42,11 @@ class RegistryBackend(ABC):
     def log(self, record: ConversationRecord) -> None:
         """Persist one record. May raise; callers handle failures."""
 
+    def log_many(self, records: list[ConversationRecord]) -> None:
+        """Persist a batch. Backends override this with a single round trip."""
+        for record in records:
+            self.log(record)
+
     def close(self) -> None:
         pass
 
@@ -78,12 +83,17 @@ class SqliteBackend(RegistryBackend):
             conn.execute(f"CREATE TABLE IF NOT EXISTS conversations ({cols})")
 
     def log(self, record: ConversationRecord) -> None:
+        self.log_many([record])
+
+    def log_many(self, records: list[ConversationRecord]) -> None:
+        if not records:
+            return
         cols = ", ".join(_quoted_ident(c) for c in self._columns)
         placeholders = ", ".join("?" for _ in self._columns)
         with self._connect() as conn:
-            conn.execute(
+            conn.executemany(
                 f"INSERT INTO conversations ({cols}) VALUES ({placeholders})",
-                record.values(self._columns),
+                [record.values(self._columns) for record in records],
             )
 
     def close(self) -> None:
@@ -197,9 +207,16 @@ class GoogleSheetsBackend(RegistryBackend):
         self._header_ready = True
 
     def log(self, record: ConversationRecord) -> None:
+        self.log_many([record])
+
+    def log_many(self, records: list[ConversationRecord]) -> None:
+        # One API call per batch keeps us far below the Sheets write quota
+        # (~60 requests/min/user). RAW avoids formula injection from user text.
+        if not records:
+            return
         self._ensure_header()
-        self._get_worksheet().append_row(
-            record.values(self._columns), value_input_option="USER_ENTERED"
+        self._get_worksheet().append_rows(
+            [record.values(self._columns) for record in records], value_input_option="RAW"
         )
 
     def close(self) -> None:

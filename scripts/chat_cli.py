@@ -70,7 +70,7 @@ async def run(phone: str) -> int:
             if line == "/quit":
                 break
             if line == "/reset":
-                orch.reset_conversation(phone)
+                await orch.reset_conversation(phone)
                 print("Bot: conversation reset")
                 continue
             action = await orch.handle_message(phone, line)
@@ -82,7 +82,7 @@ async def run(phone: str) -> int:
             if not line or line == "/quit":
                 continue
             if line == "/reset":
-                orch.reset_conversation(phone)
+                await orch.reset_conversation(phone)
                 print("Bot: conversation reset")
                 continue
             action = await orch.handle_message(phone, line)

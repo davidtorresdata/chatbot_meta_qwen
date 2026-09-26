@@ -13,9 +13,16 @@ app:
 # Conversation settings
 agent:
   history_size: 6           # number of prior turns kept per conversation
-  welcome_message: "Hello! I am the virtual assistant of Fertrac. Ask me about our products, hours or returns."
-  fallback_message: "I don't have that information yet. Visit our website https://acme.example.com or talk to an agent on WhatsApp: https://wa.me/15551234567"
-  refusal_message: "I am a virtual assistant for ACME Corp. I can only answer questions about our products and services, and I don't discuss how I work internally."
+  welcome_message: "¡Hola! Soy Susy, la asistente virtual de Fertrac. Pregúntame por nuestros productos, horarios o devoluciones."
+  # PENDIENTE: reemplazar sitio web y número de asesor reales (en producción el
+  # arranque falla mientras queden "example.com" o "15551234567").
+  fallback_message: "Aún no tengo esa información. Visita nuestro sitio https://acme.example.com o habla con un asesor por WhatsApp: https://wa.me/15551234567"
+  refusal_message: "Soy la asistente virtual de Fertrac. Solo puedo responder sobre nuestros productos y servicios, y no comento cómo funciono internamente."
+  # Avisos operativos (cola, límites, tipos de mensaje)
+  busy_message: "Estamos atendiendo muchas solicitudes en este momento. Por favor escríbenos de nuevo en unos minutos."
+  queued_message: "Recibimos tu mensaje. En un momento te respondemos."
+  rate_limited_message: "Recibimos muchos mensajes seguidos. Espera un momento antes de escribir de nuevo, por favor."
+  unsupported_message: "Por ahora solo puedo leer mensajes de texto. Escríbeme tu consulta, por favor."
 
 # Retrieval / anti-hallucination settings
 knowledge:
@@ -29,12 +36,15 @@ llm:
   temperature: 0.3          # 0 = deterministic, 1 = creative. Override via TEMPERATURE env
   max_tokens: 512
   top_p: 0.9
-  timeout_seconds: 90
+  timeout_seconds: 60       # per LLM call (LLM_TIMEOUT_SECONDS)
+  max_retries: 2            # SDK retries with exponential backoff (LLM_MAX_RETRIES)
+  circuit_failure_threshold: 5   # consecutive failures that open the circuit (fail fast)
+  circuit_cooldown_seconds: 30   # time before a trial call is allowed again
 
 # Embeddings
 embeddings:
   backend: "openai_compat"  # openai_compat | local (sentence-transformers)
-  model: "BAAI/bge-small-en-v1.5"
+  model: "bge-m3"           # must match EMBEDDING_MODEL / what was ingested
 
 # Knowledge storage (local LanceDB)
 storage:
@@ -47,6 +57,8 @@ storage:
 whatsapp:
   api_version: "v21.0"
   graph_base_url: "https://graph.facebook.com"
+  timeout_seconds: 15       # per Graph API call
+  max_retries: 3            # retries on 429 / 5xx / network errors (honours Retry-After)
 
 # ----------------------------------------------------------------
 # Conversation tree: markdown flows (forms, closed answers, human
@@ -57,8 +69,11 @@ tree:
   enabled: true
   path: "tree.md"
   menu_keywords: ["menu", "start", "help"]   # commands that show the flow list
-  redirect_message: "Continue with a human agent here:"  # button body when a redirect step has no - message:
+  redirect_message: "Continúa con un asesor aquí:"  # button body when a redirect step has no - message:
   max_steps: 30          # safety limit on steps executed per turn
+  menu_header: "Puedo ayudarte con una de estas opciones:"
+  menu_footer: "Responde con un número o una palabra clave."
+  options_footer: "Responde con un número o una opción."
 
 # ----------------------------------------------------------------
 # Redirects: detect intents and push the client to a website or to
@@ -71,13 +86,13 @@ redirects:
   enabled: true
   rules:
     - keywords: ["price", "pricing", "cost", "buy", "purchase", "precio", "costo"]
-      message: "You can see our current pricing here:"
+      message: "Consulta nuestros precios actualizados aquí:"
       url: "https://acme.example.com/pricing"
     - keywords: ["human", "person", "agent", "sales", "talk to someone", "asesor", "ventas"]
-      message: "Talk to one of our sales agents:"
+      message: "Habla con uno de nuestros asesores comerciales:"
       whatsapp: "15551234567"
     - keywords: ["website", "site", "page", "web", "pagina", "sitio"]
-      message: "Visit our website:"
+      message: "Visita nuestro sitio web:"
       url: "https://acme.example.com"
   default_url: "https://acme.example.com"
   default_whatsapp: "15551234567"
@@ -103,4 +118,36 @@ conversation_log:
   google_credentials_file: "/app/credentials/gspread-sa.json"  # service_account mode
   google_client_secret_file: ""              # oauth_user mode: OAuth client secret
   google_token_file: "data/gspread_authorized_user.json"  # oauth_user mode
-  timezone: ""                              # e.g. America/Bogota ; empty = UTC
+  timezone: "America/Bogota"                # IANA name; empty = UTC
+
+# ----------------------------------------------------------------
+# Runtime profile, queue, state and rate limits (docs/OPERATIONS.md)
+# Profile overlay: config/config.<APP_ENV>.yaml is deep-merged on top of
+# this file (e.g. config.production.yaml with the real URLs/numbers).
+# ----------------------------------------------------------------
+runtime:
+  environment: "development"   # development | staging | production  (APP_ENV)
+  redis_url: ""                # REDIS_URL, required for redis backends
+  redis_prefix: "metabot"      # REDIS_PREFIX: one per bot/tenant on a shared Redis
+
+queue:
+  backend: "memory"            # memory (1 instance) | redis (durable, N replicas)  (QUEUE_BACKEND)
+  workers: 2                   # parallel conversations; keep == OLLAMA_NUM_PARALLEL (QUEUE_WORKERS)
+  max_pending: 500             # backpressure: above this the customer gets busy_message
+  processing_timeout_seconds: 120  # end-to-end budget per message -> fallback on timeout
+  drain_timeout_seconds: 25    # graceful shutdown budget (< compose stop_grace_period)
+  ack_when_pending_over: 10    # send queued_message when the backlog is larger (0 = off)
+  heartbeat_seconds: 5         # redis backend: worker heartbeat
+  orphan_after_seconds: 60     # redis backend: requeue work of a dead replica after this
+
+state:
+  backend: "memory"            # memory | redis  (STATE_BACKEND)
+  conversation_ttl_seconds: 1800   # idle conversations (history + tree step) expire
+  max_conversations: 10000     # memory backend LRU cap
+  dedup_ttl_seconds: 86400     # Meta redelivery window for message ids
+
+rate_limit:
+  enabled: true
+  max_messages: 20             # per phone per window
+  window_seconds: 60
+  max_input_chars: 1000        # longer messages are truncated before the LLM

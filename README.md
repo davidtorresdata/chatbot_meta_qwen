@@ -5,6 +5,9 @@ local, scalable knowledge base using Retrieval-Augmented Generation (RAG):
 Qwen generates replies, LanceDB stores the knowledge, and guardrails prevent
 hallucinations.
 
+> **Operación en producción (colas, concurrencia, escalado, seguridad, métricas):**
+> ver [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+
 ## Features
 
 - **RAG, not raw LLM** — every answer must be grounded in the knowledge base;
@@ -89,8 +92,8 @@ docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d      # 7.
 powershell -ExecutionPolicy Bypass -File deploy\test-webhook.ps1            # 8. all webhook tests pass
 # 9. start ALL services in ONE command (chatbot + ollama + Caddy + Cloudflare Tunnel):
 docker compose -f docker-compose.yml -f docker-compose.caddy.yml -f docker-compose.tunnel.yml up -d
-# 10. production: set CADDY_DOMAIN=bot.example.com in .env, point DNS, open 80/443,
-#    uncomment the 80/443 mappings in docker-compose.caddy.yml
+# 10. production: APP_ENV=production + all WHATSAPP_* secrets in .env (fail-closed),
+#    set CADDY_DOMAIN=bot.example.com, point DNS, open 80/443
 # 11. Meta: callback URL https://bot.fertrac.com/webhook + your verify token; subscribe to `messages`
 ```
 
@@ -377,10 +380,16 @@ Before pointing real customers at the bot, go through this:
 - [ ] **`WHATSAPP_APP_SECRET` set** in `.env` (webhook signature validation
       active). Recreate the bot afterwards:
       `docker compose up -d --force-recreate chatbot`.
+- [ ] **`APP_ENV=production`** in `.env`: the bot refuses to start if a
+      WhatsApp secret is missing or config/tree still contain placeholders.
 - [ ] **HTTPS**: `CADDY_DOMAIN=bot.example.com` in `.env`, DNS `A` record,
-      ports 80/443 open in the firewall, `80:80`/`443:443` uncommented in
-      `docker-compose.caddy.yml`.
-- [ ] **Ports 8000 and 8080 are NOT exposed to the internet** — only 80/443.
+      ports 80/443 open in the firewall (or the Cloudflare Tunnel overlay).
+- [ ] **Ports 8000, 8001 and 8080 are bound to 127.0.0.1** (default) — only
+      80/443 (or the tunnel) are public; Caddy only serves `/webhook` and `/health`.
+- [ ] **`/ready` returns 200** (`curl http://localhost:8000/ready`).
+- [ ] **Queue sized**: `QUEUE_WORKERS` = `OLLAMA_NUM_PARALLEL`; for zero message
+      loss on restarts or more than one replica, use `docker-compose.redis.yml`.
+- [ ] **Monitoring**: `docker-compose.monitoring.yml` up, alerts reviewed.
 - [ ] **Webhook tests pass**: `powershell -ExecutionPolicy Bypass -File deploy\test-webhook.ps1`.
 - [ ] **Knowledge ingested**: `curl http://localhost:8000/health` shows
       `chunks` > 0.
@@ -423,11 +432,22 @@ More in-depth guidance: `docs/USER_MANUAL.md` §13 (troubleshooting) and
 ## Tests
 
 ```bash
-python -m pytest tests -q
+pip install -r requirements-dev.txt
+python -m pytest -q
 ```
 
 The suite uses fake embedders and a fake LLM, so it runs without Docker, an
-LLM, or WhatsApp credentials.
+LLM, or WhatsApp credentials. Redis tests use `REDIS_URL` or a local
+`redis-server` binary and are skipped otherwise. CI: `.github/workflows/ci.yml`.
+
+Load test (staging, never production numbers):
+
+```bash
+python scripts/mock_services.py --port 9100 --llm-latency 1.5 --llm-parallel 2
+# bot with WHATSAPP_GRAPH_BASE_URL/LLM_BASE_URL/EMBEDDING_BASE_URL -> http://localhost:9100(/v1)
+python scripts/load_test.py --url http://localhost:8000 --secret $WHATSAPP_APP_SECRET \
+    --phones 50 --messages 4 --mock http://localhost:9100 --metrics
+```
 
 ## Tuning (no code changes)
 
@@ -486,9 +506,10 @@ For a local LLM, install Ollama and `ollama pull qwen3.5:4b bge-m3`, then set
 
 ## Notes / scaling
 
-- Conversation history is kept in memory per phone number. For horizontal
-  scaling, replace `Conversation` storage with Redis (only
-  `src/agent/orchestrator.py` needs changes).
+- Messages go through a bounded queue with per-conversation ordering;
+  conversation state has an idle TTL. `memory` backends = one instance;
+  `docker-compose.redis.yml` = durable queue + shared state + N replicas.
+  Details in `docs/OPERATIONS.md`.
 - The grounding check is a lightweight lexical heuristic; the retrieval
   similarity gate is the primary anti-hallucination control — tune
   `knowledge.score_threshold` per your embedding model.
