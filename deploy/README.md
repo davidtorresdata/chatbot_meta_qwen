@@ -13,7 +13,7 @@ Meta (Cloud API)
    │    POST https://bot.example.com/webhook   (message payloads, signed)
    │    GET  https://bot.example.com/webhook   (verification handshake)
    ▼
-Caddy (public ports 80/443 only)   ──►  whatsapp-qwen-chatbot:8000   (FastAPI, private)
+Caddy (public ports 80/443 only)   ──►  chatbot:8000   (FastAPI, private; round-robin across replicas)
 ```
 
 - The chatbot binds to port 8000 and is **not** reachable from the internet —
@@ -55,7 +55,7 @@ Meta (Cloud API)
 Cloudflare edge  (TLS cert for the hostname, auto-issued)
    │  outbound-only QUIC connection from this machine
    ▼
-cloudflared ──► http://localhost:8080 ──► whatsapp-qwen-chatbot:8000 (FastAPI)
+cloudflared ──► http://caddy:8080 ──► chatbot:8000 (FastAPI)
 ```
 
 Only the connection *from this machine to Cloudflare* is outbound — no inbound
@@ -237,7 +237,7 @@ powershell -ExecutionPolicy Bypass -File deploy\test-webhook.ps1 -BaseUrl https:
 | Variable | Default | Meaning |
 |---|---|---|
 | `CADDY_DOMAIN` | `http://localhost:8080` | Site address. Leave unset for local; set a real domain for HTTPS. |
-| `CADDY_UPSTREAM` | `whatsapp-qwen-chatbot:8000` | Where to forward requests. |
+| `CADDY_UPSTREAM` | `chatbot:8000` | Where to forward requests (compose service name; resolves to every replica). |
 
 ## Security notes
 
