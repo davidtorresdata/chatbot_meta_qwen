@@ -1,26 +1,28 @@
 # Cloudflare Tunnel overlay: exposes the bot on a real HTTPS domain
-# (bot.fertrac.com) even behind NAT/CGNAT. Cloudflare terminates TLS at the
-# edge and connects back to Caddy running here in local mode.
+# (e.g. bot.fertrac.com) even behind NAT/CGNAT. Cloudflare terminates TLS at the
+# edge and connects to Caddy (local mode) through the compose network.
 #
-# One-time setup (host, PowerShell):
-#   & "$env:LOCALAPPDATA\cloudflared\cloudflared.exe" tunnel login
-#   & "$env:LOCALAPPDATA\cloudflared\cloudflared.exe" tunnel create fertrac
-#   & "$env:LOCALAPPDATA\cloudflared\cloudflared.exe" tunnel route dns fertrac bot.fertrac.com
-# then copy the generated <tunnel-id>.json path into
-# deploy/cloudflared/config.yml (credentials-file) and adjust the hostname.
+# One-time setup (host):
+#   cloudflared tunnel login
+#   cloudflared tunnel create fertrac
+#   cloudflared tunnel route dns fertrac bot.fertrac.com
+# Then in .env:
+#   CLOUDFLARED_CREDENTIALS_FILE=<path to the generated <tunnel-id>.json>
+#     Windows example: C:/Users/<you>/.cloudflared/<tunnel-id>.json
+#     Linux example:   /home/<you>/.cloudflared/<tunnel-id>.json
+# and adjust tunnel/hostname in deploy/cloudflared/config.yml.
+# The credentials file is a secret: never commit it.
 #
 # Usage:
 #   docker compose -f docker-compose.yml -f docker-compose.caddy.yml -f docker-compose.tunnel.yml up -d
-#
-# Requires Docker Desktop's host.docker.internal to reach Caddy on 8080.
 services:
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:${CLOUDFLARED_VERSION:-2026.9.1}
     container_name: cloudflared
     restart: unless-stopped
-    command: tunnel --no-autoupdate run
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
     volumes:
-      - ./deploy/cloudflared/config.yml:/home/nonroot/.cloudflared/config.yml:ro
-      - ${USERPROFILE}/.cloudflared/3b788127-936d-464a-a4ba-b84854d68e45.json:/home/nonroot/.cloudflared/3b788127-936d-464a-a4ba-b84854d68e45.json:ro
+      - ./deploy/cloudflared/config.yml:/etc/cloudflared/config.yml:ro
+      - ${CLOUDFLARED_CREDENTIALS_FILE:?set CLOUDFLARED_CREDENTIALS_FILE in .env}:/etc/cloudflared/credentials.json:ro
     depends_on:
       - caddy

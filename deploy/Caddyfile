@@ -16,8 +16,7 @@
 #
 #   1. In .env set the domain, e.g.   CADDY_DOMAIN=bot.example.com
 #   2. Point a DNS A record at this machine's public IP.
-#   3. Uncomment the "80:80" and "443:443" port mappings in
-#      docker-compose.caddy.yml and open those ports in the firewall.
+#   3. Open ports 80/443 in the firewall (mapped in docker-compose.caddy.yml).
 #   4. Run the same command above. Caddy obtains the certificate and
 #      redirects port 80 -> 443 automatically.
 #
@@ -30,13 +29,31 @@
 # the upstream. With CADDY_DOMAIN set (direct HTTPS mode) this site becomes that
 # domain with automatic Let's Encrypt on 80/443.
 {$CADDY_DOMAIN:http://:8080} {
-	# Upstream = chatbot container by default (CADDY_UPSTREAM env override;
-	# use 127.0.0.1:8000 when running Caddy as a bare process on the host).
-	reverse_proxy {$CADDY_UPSTREAM:whatsapp-qwen-chatbot:8000}
+	# Only the webhook and the liveness probe are public. /metrics, /ready and
+	# the API docs are internal (Prometheus scrapes the container directly).
+	@public path /webhook /health
+	handle @public {
+		# Upstream = chatbot service by default (DNS round-robin across replicas;
+		# CADDY_UPSTREAM override, e.g. 127.0.0.1:8000 for host-run Caddy).
+		reverse_proxy {$CADDY_UPSTREAM:chatbot:8000} {
+			lb_policy round_robin
+			health_uri /health
+			health_interval 15s
+		}
+	}
+	handle {
+		respond 404
+	}
 
-	# Do not let Caddy re-encode or buffer the body before forwarding: the bot
-	# must hash the exact raw body to verify the X-Hub-Signature-256 header.
+	# Meta payloads are small; reject anything larger. The body is forwarded
+	# unmodified, so the bot can verify X-Hub-Signature-256 over the raw bytes.
 	request_body {
 		max_size 1MB
+	}
+
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
 	}
 }

@@ -1,0 +1,48 @@
+# Redis overlay: durable queue + shared conversation state.
+#
+# Enables:
+#   * no message loss on restart/deploy (backlog lives in Redis, AOF persisted)
+#   * horizontal scaling: several chatbot replicas consume the same queue
+#   * dedup / rate limit / conversation state shared by every replica
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.redis.yml up -d
+# Scale (remove container_name from the chatbot service first, or use Portainer/Swarm):
+#   docker compose -f docker-compose.yml -f docker-compose.redis.yml up -d --scale chatbot=2
+#
+# Total LLM concurrency = replicas x QUEUE_WORKERS: keep it <= OLLAMA_NUM_PARALLEL
+# of the Ollama/vLLM instance(s) behind them.
+
+services:
+  redis:
+    image: redis:${REDIS_VERSION:-8.10-alpine}
+    container_name: metabot-redis
+    restart: unless-stopped
+    # AOF fsync every second: at most ~1 s of queue writes lost on a hard crash.
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec",
+              "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    # No ports: reachable only inside the compose network.
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  chatbot:
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      QUEUE_BACKEND: redis
+      STATE_BACKEND: redis
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  redis-data:

@@ -1,34 +1,40 @@
 services:
   chatbot:
-    build: .
+    build:
+      context: .
+      args:
+        APP_UID: ${APP_UID:-10001}
+        APP_GID: ${APP_GID:-10001}
     container_name: whatsapp-qwen-chatbot
     restart: unless-stopped
     env_file:
       - .env
     environment:
-      LOG_LEVEL: INFO
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_DIR: /app/logs
       # Ollama's OpenAI-compatible API inside the Docker network.
       LLM_BASE_URL: http://ollama:11434/v1
       EMBEDDING_BASE_URL: http://ollama:11434/v1
+      # Worker pool = parallel conversations. Keep equal to OLLAMA_NUM_PARALLEL.
+      QUEUE_WORKERS: ${QUEUE_WORKERS:-2}
     ports:
-      - "8000:8000"
+      # Host-only. Public traffic must go through Caddy / Cloudflare Tunnel.
+      - "127.0.0.1:8000:8000"
     volumes:
-      # Local LanceDB knowledge base (persistent, scales locally)
+      # Local LanceDB knowledge base + conversation registry (persistent)
       - ./data:/app/data
       # Live-mount documents and config so you can edit them without rebuilds
       - ./knowledge_base:/app/knowledge_base
-      - ./config:/app/config
-      - ./scripts:/app/scripts
-      # Editable conversation tree (no rebuild needed after edits)
-      - ./tree.md:/app/tree.md
-      # Persistent action logs: wa_ollama_logs_<timestamp>.txt, never deleted
+      - ./config:/app/config:ro
+      - ./scripts:/app/scripts:ro
+      # Editable conversation tree (restart the chatbot after edits)
+      - ./tree.md:/app/tree.md:ro
+      # Rotated action logs (retention: LOG_RETENTION_DAYS)
       - ./logs:/app/logs
-      # Google service-account key for the conversation registry (google_sheets
-      # backend). Drop the .json file in deploy/credentials/ (see docs/CONVERSATION_REGISTRY.md)
-      - ./deploy/credentials:/app/credentials
-    # Cap Docker's internal JSON logs per container (rotation).
-    # Live per-service capture: scripts/tail-logs.ps1
+      # Google credentials for the registry (read-only; see docs/CONVERSATION_REGISTRY.md)
+      - ./deploy/credentials:/app/credentials:ro
+    # Graceful shutdown: stop intake, drain the queue (queue.drain_timeout_seconds).
+    stop_grace_period: 40s
     logging:
       driver: json-file
       options:
@@ -37,21 +43,27 @@ services:
     depends_on:
       - ollama
 
-  # Qwen 3.5 served by Ollama (OpenAI-compatible /v1).
-  # This is the CPU-friendly default and also works on GPU hosts.
+  # Qwen served by Ollama (OpenAI-compatible /v1). CPU-friendly default.
   # For GPU-only vLLM serving, see qwen-service/ (vllm + CUDA).
   ollama:
-    image: ollama/ollama
+    image: ollama/ollama:${OLLAMA_VERSION:-0.34.3}
     container_name: ollama
     restart: unless-stopped
     environment:
       # keep the model warm between messages instead of unloading after 5 min
       OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
+      # Requests served in parallel per model (each one reserves context memory).
+      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-2}
+      # Requests Ollama queues before answering 503 (our queue sits in front).
+      OLLAMA_MAX_QUEUE: ${OLLAMA_MAX_QUEUE:-64}
+      OLLAMA_MAX_LOADED_MODELS: ${OLLAMA_MAX_LOADED_MODELS:-2}
+    # No public port: Ollama has no authentication. Host-only for local tooling
+    # (ingest/chat CLIs run on the host with LLM_BASE_URL=http://localhost:8001/v1).
     ports:
-      # host 8001 -> container 11434 (matches LLM_BASE_URL default in .env)
-      - "8001:11434"
+      - "127.0.0.1:8001:11434"
     volumes:
-      # persistent model store: download once, reuse on restarts
+      # persistent model store: download once, reuse on restarts.
+      # Not versioned (.gitignore): Ollama also keeps its private key here.
       - ./ollama-models:/root/.ollama
     logging:
       driver: json-file
@@ -61,7 +73,7 @@ services:
     # start the API, then pull the chat + embedding models (no-op once cached)
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - "ollama serve & sleep 3 && ollama pull qwen3.5:4b && ollama pull bge-m3 && wait"
+      - "ollama serve & sleep 3 && ollama pull ${LLM_MODEL:-qwen3.5:4b} && ollama pull ${EMBEDDING_MODEL:-bge-m3} && wait"
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 30s

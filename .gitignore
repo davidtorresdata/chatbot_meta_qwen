@@ -1,13 +1,31 @@
+# Secrets - never commit
 .env
+.env.*
+!.env.example
+deploy/credentials/*
+!deploy/credentials/README.md
+*.pem
+*.key
+id_ed25519*
+id_rsa*
+*credentials*.json
+client_secret*.json
+
+# Runtime data
+data/
+logs/
+# Ollama model store: GBs of weights AND Ollama's private identity key
+ollama-models/
+
+# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
 .venv/
 venv/
-data/
-logs/
-.git/
+.coverage
+htmlcov/
 
 # Qwen service
 qwen-service/.env

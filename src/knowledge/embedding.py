@@ -28,13 +28,17 @@ class EmbeddingProvider(Protocol):
 class OpenAICompatEmbedder:
     """Uses the same OpenAI-compatible endpoint as the LLM for embeddings."""
 
-    def __init__(self, config: EmbeddingsConfig, llm_base_url: str | None = None):
+    def __init__(self, config: EmbeddingsConfig, llm_base_url: str | None = None,
+                 timeout_seconds: float = 30.0, max_retries: int = 2):
         from openai import AsyncOpenAI
 
         self._base_url = config.base_url or llm_base_url or "http://localhost:8001/v1"
         self._api_key = config.api_key or "EMPTY"
         self._model = config.model
-        self._client = AsyncOpenAI(base_url=self._base_url, api_key=self._api_key)
+        self._client = AsyncOpenAI(
+            base_url=self._base_url, api_key=self._api_key,
+            timeout=timeout_seconds, max_retries=max_retries,
+        )
         self._dim: int | None = None
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
@@ -87,7 +91,9 @@ class LocalEmbedder:
         return self._dim
 
 
-def build_embedder(config: EmbeddingsConfig, llm_base_url: str | None = None) -> EmbeddingProvider:
+def build_embedder(config: EmbeddingsConfig, llm_base_url: str | None = None,
+                   timeout_seconds: float = 30.0, max_retries: int = 2) -> EmbeddingProvider:
     if config.backend == "local":
         return LocalEmbedder(config)
-    return OpenAICompatEmbedder(config, llm_base_url=llm_base_url)
+    return OpenAICompatEmbedder(config, llm_base_url=llm_base_url,
+                                timeout_seconds=timeout_seconds, max_retries=max_retries)

@@ -201,7 +201,7 @@ def test_oauth_user_uses_token_and_client_secret(tmp_path, monkeypatch):
     config.google_client_secret_file = str(secret)
     config.google_token_file = str(token)
 
-    import gspread
+    gspread = pytest.importorskip("gspread")
 
     calls = {}
 

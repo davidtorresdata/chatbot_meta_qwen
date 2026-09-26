@@ -1,0 +1,40 @@
+[project]
+name = "chatbot-meta-qwen"
+version = "1.1.0"
+description = "WhatsApp (Meta Cloud API) customer-service bot: conversation tree + RAG over Qwen, with durable queue, metrics and guardrails."
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "fastapi>=0.115,<1.0",
+    "uvicorn[standard]>=0.30,<1.0",
+    "pydantic>=2.9,<3.0",
+    "pydantic-settings>=2.6,<3.0",
+    "httpx>=0.27,<1.0",
+    "openai>=1.55,<2.0",
+    "lancedb>=0.19,<1.0",
+    "pypdf>=5.1,<6.0",
+    "openpyxl>=3.1,<4.0",
+    "PyYAML>=6.0,<7.0",
+    "python-dotenv>=1.0,<2.0",
+    "redis>=5.0,<8.0",
+    "prometheus-client>=0.20,<1.0",
+    "gspread>=6.0,<7.0",
+    "google-auth>=2.30,<3.0",
+    "tzdata>=2024.1",
+]
+
+[project.optional-dependencies]
+local-embeddings = ["sentence-transformers>=3.3,<5.0"]
+
+[dependency-groups]
+dev = ["pytest>=8.0,<10.0"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "redis: needs a Redis server (REDIS_URL or a local redis-server binary)",
+    "load: in-process load test (slower)",
+]

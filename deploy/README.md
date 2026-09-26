@@ -134,10 +134,12 @@ Windows), run the connector as a compose service that restarts with Docker:
 
 1. Do the one-time setup on the host (steps 5-6 above; this writes
    `%USERPROFILE%\.cloudflared\<tunnel-id>.json`).
-2. Edit `deploy/cloudflared/config.yml`: put the tunnel name, the
-   `<tunnel-id>` in `credentials-file`, and your hostname.
-3. Edit `docker-compose.tunnel.yml`: update the `credentials-file` bind-mount
-   path with your actual `<tunnel-id>.json`.
+2. Edit `deploy/cloudflared/config.yml`: put the tunnel name and your
+   hostname (`credentials-file` stays `/etc/cloudflared/credentials.json`).
+3. In `.env` set `CLOUDFLARED_CREDENTIALS_FILE` to the host path of your
+   `<tunnel-id>.json` (Windows: `C:/Users/<you>/.cloudflared/<id>.json`,
+   Linux: `/home/<you>/.cloudflared/<id>.json`). Nothing tunnel-specific is
+   hard-coded in the compose files any more.
 4. Start everything:
    ```bash
    docker compose -f docker-compose.yml -f docker-compose.caddy.yml -f docker-compose.tunnel.yml up -d
@@ -148,8 +150,10 @@ Windows), run the connector as a compose service that restarts with Docker:
    powershell -ExecutionPolicy Bypass -File deploy\test-webhook.ps1 -BaseUrl https://bot.fertrac.com -SkipComposeUp
    ```
 
-The container uses `host.docker.internal:8080` to reach Caddy (Docker Desktop
-feature).
+The container reaches Caddy as `http://caddy:8080` over the compose network,
+so it works the same on Docker Desktop (Windows/macOS) and Linux. Caddy only
+publishes `/webhook` and `/health`; `/metrics`, `/ready` and the API docs answer
+404 from outside.
 
 ## Production with direct Caddy HTTPS (only if a real public IP is available)
 

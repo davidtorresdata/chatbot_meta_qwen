@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 
 from src.agent.orchestrator import ReplyAction
 from src.tree.parser import Flow, Step
+from src.utils.pii import mask_phone
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,30 @@ class TreeEngine:
     def active(self, phone: str) -> bool:
         return phone in self._sessions
 
+    # ---------------------------------------------- state (external storage)
+    def export_session(self, phone: str) -> dict | None:
+        """Serializable snapshot of the phone's session (None when idle)."""
+        state = self._sessions.get(phone)
+        if state is None:
+            return None
+        return {"flow": state.flow.id, "question_index": state.question_index, "fields": dict(state.fields)}
+
+    def import_session(self, phone: str, data: dict | None) -> None:
+        """Restore a snapshot produced by :meth:`export_session`."""
+        self._sessions.pop(phone, None)
+        if not data:
+            return
+        flow = self._flows.get(data.get("flow", ""))
+        index = data.get("question_index", -1)
+        if flow is None or not isinstance(index, int) or not 0 <= index < len(flow.steps):
+            logger.warning("Discarding stale tree session for %s (flow changed?)", mask_phone(phone))
+            return
+        self._sessions[phone] = TreeState(flow=flow, question_index=index, fields=dict(data.get("fields") or {}))
+
+    def forget(self, phone: str) -> None:
+        """Drop the local copy after it was persisted to the state store."""
+        self._sessions.pop(phone, None)
+
     # ------------------------------------------------------------ internals
     def _match_flow(self, text: str) -> Flow | None:
         lowered = text.strip().lower()
@@ -75,14 +100,14 @@ class TreeEngine:
         return None
 
     def _menu_action(self) -> ReplyAction:
-        lines = ["I can help you with one of these options:"]
+        lines = [getattr(self._config, "menu_header", "I can help you with one of these options:")]
         for index, flow in enumerate(self._menu_flows, 1):
             lines.append(f"{index}) {flow.display_name}")
-        lines.append("Reply with a number or a keyword.")
+        lines.append(getattr(self._config, "menu_footer", "Reply with a number or a keyword."))
         return ReplyAction(type="text", message="\n".join(lines))
 
     def _start(self, phone: str, flow: Flow) -> ReplyAction:
-        logger.info("Tree action | phone=%s flow=%s started", phone, flow.id)
+        logger.info("Tree action | phone=%s flow=%s started", mask_phone(phone), flow.id)
         state = TreeState(flow=flow, question_index=-1)
         action, awaiting = self._run(phone, state, 0)
         if awaiting is None:
@@ -93,7 +118,7 @@ class TreeEngine:
         return action
 
     def _continue(self, phone: str, state: TreeState, reply: str) -> ReplyAction:
-        logger.info("Tree action | phone=%s flow=%s continued", phone, state.flow.id)
+        logger.info("Tree action | phone=%s flow=%s continued", mask_phone(phone), state.flow.id)
         flow = state.flow
         step = flow.steps[state.question_index]
         if step.save_as:
@@ -210,7 +235,8 @@ class TreeEngine:
         if step.options:
             choices = [b for b in step.options if b.pattern != "*"]
             lines = "\n".join(f"{index + 1}) {b.pattern}" for index, b in enumerate(choices))
-            text = f"{text}\n\n{lines}\n\nReply with a number or an option."
+            footer = getattr(self._config, "options_footer", "Reply with a number or an option.")
+            text = f"{text}\n\n{lines}\n\n{footer}"
         return ReplyAction(type="text", message=text)
 
     def _format(self, text: str, fields: dict[str, str]) -> str:

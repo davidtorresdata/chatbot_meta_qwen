@@ -88,7 +88,7 @@ def test_out_of_domain_falls_back(store, settings):
     orch = WhatsAppOrchestrator(settings, store, FakeEmbedder(), FakeQwen())
     action = asyncio_run(orch.handle_message("1555", "tell me about quantum physics"))
     assert action.type == "fallback"
-    assert "I don't have that information" in action.message
+    assert action.message == settings.agent.fallback_message
 
 
 def test_hallucinated_answer_rejected(store, settings):
