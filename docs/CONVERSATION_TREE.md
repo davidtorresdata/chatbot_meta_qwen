@@ -35,8 +35,21 @@ tree lives in `config/config.yaml` under `tree:`:
 | `enabled`          | `true`  | Master switch for the whole tree                 |
 | `path`             | `tree.md` | File to load the flows from                    |
 | `menu_keywords`    | `menu, start, help` | Commands that show the flow list    |
-| `redirect_message` | `Continue with a human agent here:` | Button text when a redirect step has no `- message:` |
+| `redirect_message` | `Continúa con un asesor aquí:` | Button text when a redirect step has no `- message:` |
 | `max_steps`        | `30`    | Safety limit on executed steps per turn          |
+| `menu_header`      | `Puedo ayudarte con una de estas opciones:` | First line of the `menu` reply |
+| `menu_footer`      | `Responde con un número o una palabra clave.` | Last line of the `menu` reply |
+| `options_footer`   | `Responde con un número o una opción.` | Line shown under a question's option list |
+
+All customer-facing texts of the tree live in the config, so the bot can be
+localized or adapted to another process without code changes.
+
+**Session state.** A customer's position inside a flow (current question and
+collected fields) is saved in the state store between messages and expires
+after `state.conversation_ttl_seconds` (default 30 min) of inactivity. With the
+Redis backend it survives restarts and is shared by all replicas. If you
+rename or remove a flow in `tree.md`, customers who were inside it simply start
+over.
 
 ## File format
 
@@ -128,3 +141,6 @@ What happens when a customer writes *"I want a refund"*:
   `@<label>` that does not exist. Fix the target or add the marker line.
 - **The menu does not list a flow**: the flow has no `Menu:` line.
 - **The tree is completely ignored**: check `tree.enabled` in `config/config.yaml`.
+- **The bot refuses to start in production mentioning `tree.md`**: the file
+  still contains example values (`15551234567`, `example.com`, `acme`).
+  Replace them with the real numbers/URLs.

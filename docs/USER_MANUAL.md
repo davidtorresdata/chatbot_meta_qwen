@@ -291,23 +291,34 @@ Full reference (options, branches, placeholders): `docs/CONVERSATION_TREE.md`.
 | See AI model logs | `docker compose logs -f ollama` |
 | Check everything is healthy | `docker compose ps` (both should say "healthy") |
 | Check knowledge count | `curl http://localhost:8000/health` |
+| Check the bot is ready (AI, queue, knowledge) | `curl http://localhost:8000/ready` (must say `"ready"`) |
+| See pending messages in the queue | `/ready` → `queue.pending`, or the Grafana dashboard |
 | Restart after config changes | `docker compose restart chatbot` |
 | Read the action log file | `Get-ChildItem logs` (host) — see below |
 
-### 10.1 Action logs (persistent)
+### 10.1 Action logs (rotated, privacy-safe)
 
-Every action is written to a log file that is **never deleted** and survives
-restarts and rebuilds. Each time the bot starts it opens a new file:
+Every action is written to a log file that survives restarts and rebuilds.
+Each time the bot starts it opens a new file:
 
 ```
 logs/wa_ollama_logs_<YYYYMMDD_HHMMSS_uuuuuu>.txt
 ```
 
-The file records every inbound message (phone, message id, text), every reply
-the bot computed (type, message, URL), every message sent, plus errors and
-full tracebacks. The same files also record knowledge-ingest runs. Logs live on
-the host under `logs/` (mounted into the container as `/app/logs`); set the
-`LOG_DIR` environment variable to change the folder.
+The file records every inbound message (masked phone, message id, type),
+every reply the bot computed (type, outcome), duplicates, rate-limited or
+rejected messages, plus errors and full tracebacks. The same files also record
+knowledge-ingest runs. Logs live on the host under `logs/` (mounted into the
+container as `/app/logs`); set the `LOG_DIR` environment variable to change the
+folder.
+
+Personal data protection (Ley 1581 de 2012):
+
+- Phone numbers appear masked (`5730*****567`).
+- Message texts are **not** written (only their length) unless
+  `LOG_MESSAGE_CONTENT=1` is set for local debugging — never in production.
+- Files rotate at 20 MB (`LOG_MAX_BYTES`, 5 backups) and files older than
+  30 days are deleted at startup (`LOG_RETENTION_DAYS`).
 
 Logs are your main diagnostic tool — if a customer says the bot didn't reply,
 the reason is usually visible in `docker compose logs chatbot`.
@@ -361,6 +372,10 @@ A rough guide for RAM needs (chat model + embeddings): `qwen3.5:4b` ≈ 8 GB,
 | Out of memory / bot crashes on the AI | Model too big for the server RAM | Use a smaller model (e.g. `qwen3.5:4b`), or add RAM |
 | Changes to `.env`/`config.yaml` don't apply | Container not restarted | `docker compose restart chatbot` |
 | Port 8000/8001 already in use | Another service on the server | Change the left-hand port in `docker-compose.yml` |
+| Customers get "Estamos atendiendo muchas solicitudes…" | Queue full (more messages than the AI can answer) | See `docs/OPERATIONS.md` → Runbook: raise AI capacity / `QUEUE_WORKERS` |
+| Every answer is the fallback message | AI server down (circuit breaker open) | `curl http://localhost:8000/ready`; `docker compose logs ollama` |
+| Bot does not start and the log says `Refusing to start in production` | `APP_ENV=production` with a missing secret or example values left in config/`tree.md` | Fix each item listed in the log |
+| `PermissionError` on `/app/data` or `/app/logs` (Linux) | Container runs as a non-root user | `sudo chown -R 10001:10001 data logs` |
 | Logs show a Meta API error | Token/ID expired or invalid | Regenerate the token in the Meta portal, update `.env`, restart |
 
 ## 14. FAQ

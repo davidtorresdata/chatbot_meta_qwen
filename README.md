@@ -231,7 +231,8 @@ You can also script the tree and redirects now:
   (`redirects:` section).
 
 Every action is already being logged to `logs/wa_ollama_logs_<datetime>.txt`
-(never deleted) — check it with `Get-ChildItem logs`.
+(rotated, purged after `LOG_RETENTION_DAYS`, phones masked) — check it with
+`Get-ChildItem logs`.
 
 ## Step 6 — Add the reverse proxy (Caddy, works out of the box)
 
@@ -523,35 +524,47 @@ For a local LLM, install Ollama and `ollama pull qwen3.5:4b bge-m3`, then set
 ## Project layout
 
 ```
-├── config/config.yaml      # tunable settings
+├── config/config.yaml      # tunable settings (+ optional config.<APP_ENV>.yaml overlay)
 ├── knowledge_base/         # source documents (.txt/.md/.pdf/.xlsx)
 ├── data/lancedb/           # LanceDB knowledge base (created on ingest)
-├── logs/                   # persistent action logs (wa_ollama_logs_*.txt)
+├── logs/                   # rotated action logs (wa_ollama_logs_*.txt)
 ├── tree.md                 # conversation-tree flows (safe to edit in place)
 ├── scripts/
 │   ├── ingest_cli.py       # knowledge ingestion CLI
 │   ├── chat_cli.py         # local WhatsApp simulator (no Meta needed)
 │   ├── registry_cli.py     # view/export the conversation registry (SQLite)
+│   ├── load_test.py        # signed webhook load generator
+│   ├── mock_services.py    # mock Meta Graph API + LLM for load tests
 │   └── tail-logs.ps1       # per-service log collector (wa_chatbot_<svc>_log_*.log)
 ├── src/
-│   ├── main.py             # FastAPI webhook server
-│   ├── config.py           # settings loader
+│   ├── main.py             # FastAPI webhook server (/webhook /health /ready /metrics)
+│   ├── pipeline.py         # worker-side message processing
+│   ├── config.py           # settings loader + validation (fail-closed in production)
+│   ├── dispatch/           # message queue (memory | redis), per-phone ordering
+│   ├── state/              # conversation state, dedup, rate limit (memory | redis)
 │   ├── agent/              # orchestrator, guardrails, prompts
 │   ├── knowledge/          # chunker, embedding, vector store, ingest
 │   ├── llm/                # Qwen OpenAI-compatible client
 │   ├── registry/           # conversation registry (contacts + backends)
 │   ├── tree/               # conversation-tree parser + engine
-│   ├── utils/              # persistent action logging
+│   ├── utils/              # logging, PII masking, resilience, metrics, redis client
 │   └── whatsapp/           # Meta Cloud API client
 ├── deploy/
-│   ├── Caddyfile           # reverse proxy config (localhost:8080 by default)
+│   ├── Caddyfile           # reverse proxy config (only /webhook and /health public)
+│   ├── monitoring/         # Prometheus config, alerts, Grafana provisioning
 │   ├── README.md           # reverse-proxy + firewall guide
 │   └── test-webhook.ps1    # webhook test suite (health + signature checks)
-├── docs/                   # user manual, technical doc, how-to guides
+├── docs/                   # user manual, technical doc, OPERATIONS, how-to guides
 ├── tests/                  # pytest suite
 ├── qwen-service/           # vLLM chat service (GPU-only, NVIDIA)
-├── Dockerfile
-├── docker-compose.yml      # chatbot + ollama (LLM & embeddings)
-├── docker-compose.caddy.yml  # optional Caddy proxy overlay (local first)
-└── ollama-models/          # Ollama model cache (created at first start)
+├── .github/workflows/ci.yml  # CI: tests (+redis), secrets scan, image build
+├── Dockerfile              # non-root image
+├── docker-compose.yml      # chatbot + ollama (LLM & embeddings), host-only ports
+├── docker-compose.redis.yml      # durable queue + shared state (overlay)
+├── docker-compose.caddy.yml      # optional Caddy proxy overlay (local first)
+├── docker-compose.tunnel.yml     # Cloudflare Tunnel overlay
+├── docker-compose.monitoring.yml # Prometheus + Grafana overlay
+├── pyproject.toml          # metadata + dependency groups
+├── requirements*.txt       # runtime / dev / local-embeddings deps
+└── ollama-models/          # Ollama model cache + private key (git-ignored)
 ```

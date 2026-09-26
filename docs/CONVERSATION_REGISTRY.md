@@ -17,6 +17,13 @@ El destino del registro es **completamente parametrizable**: puede apuntar a
 **una base de datos (SQLite)** o a **una hoja de Google** (Google Sheets), sin
 tocar código. Solo cambias variables de configuración.
 
+> **Datos personales:** a diferencia de los logs (teléfono enmascarado, sin
+> texto), este registro **sí** guarda número, nombre y mensajes del cliente por
+> diseño. Defina responsable, finalidad y tiempo de retención conforme a la
+> Ley 1581 de 2012 antes de activarlo en producción.
+>
+> Los mensajes no-texto (imágenes, audios, etc.) no se registran.
+
 ---
 
 ## 1. Activar y elegir el destino
@@ -248,6 +255,9 @@ exactamente esos siete.
    - **SQLite:** `docker compose exec chatbot python scripts/registry_cli.py`
    - **Google Sheets:** abre la hoja → verás la fila nueva con encabezado.
 
+   Las filas se escriben **por lotes** (hasta 50 filas o cada 5 segundos), así
+   que pueden tardar unos segundos en aparecer.
+
 ---
 
 ## 7. Solución de problemas
@@ -262,7 +272,9 @@ exactamente esos siete.
 | Sheets: `gspread`/`google-auth` no instalado | Contenedor no reconstruido | `docker compose up -d --build chatbot` |
 | Sheets: `File not found: None` / SA inválida | JSON de credenciales mal ubicado | Verifica `deploy/credentials/gspread-sa.json` y que esté montado |
 | No aparecen filas de SQLite | Aún no hubo mensajes procesados | Envía un mensaje; revisa `data/conversation_log.sqlite3` |
-| Los errores de registro no frenan el bot | Comportamiento esperado | Los fallos se loguean; revisa `logs/` |
+| Los errores de registro no frenan el bot | Comportamiento esperado | Los fallos se loguean; revisa `logs/` y la métrica `metabot_registry_dropped_total` |
+| Una celda muestra `=...` como texto | Comportamiento esperado | Sheets se escribe en modo `RAW`: un mensaje que empiece por `=` no se ejecuta como fórmula (protección contra inyección) |
+| La columna `hora` no se ordena como fecha en Sheets | Modo `RAW` guarda el texto ISO-8601 | Aplica formato de fecha a la columna o conviértela con `=DATEVALUE()` |
 
 ---
 
@@ -277,9 +289,17 @@ src/registry/
   service.py     # ConversationRegistry (enriquece y persiste en segundo plano)
 ```
 
-El hook está en `src/main.py`: después de responder un mensaje, se llama a
-`registry.log_turn(numero, pregunta, respuesta)`. La escritura corre en un hilo
-para no bloquear el servidor.
+El hook está en `src/pipeline.py`: después de responder un mensaje, el worker
+llama a `registry.log_turn(numero, pregunta, respuesta)`, que solo encola el
+registro en un búfer en memoria (máx. 5 000). **Un único escritor** en segundo
+plano lo persiste en lotes (`log_many`: `executemany` en SQLite, una sola
+llamada `append_rows` en Sheets). Así:
+
+- no hay accesos concurrentes a SQLite ni al cliente de Google;
+- se respeta la cuota de escritura de Google Sheets (~60 solicitudes/min);
+- al apagar el bot se vacía el búfer antes de cerrar (hasta 10 s).
+
+Los scripts CLI (sin servidor) escriben directamente, fila por fila.
 
 Scripts auxiliares:
 - `scripts/registry_cli.py` — consulta/exporta filas de SQLite.
@@ -287,7 +307,8 @@ Scripts auxiliares:
 
 ### Agregar otro destino (p. ej. PostgreSQL)
 
-1. Crea una clase que herede `RegistryBackend` implementando `log()` y `close()`.
+1. Crea una clase que herede `RegistryBackend` implementando `log()`, `close()`
+   y, para mejor rendimiento, `log_many()` (inserción por lotes).
 2. Regístrala en `create_backend()` (en `src/registry/backends.py`).
 3. Agrega la variable de configuración que necesites en
    `ConversationLogConfig` (`src/config.py`) y su override en `.env`.
