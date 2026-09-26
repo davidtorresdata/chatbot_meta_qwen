@@ -620,7 +620,9 @@ python -m pytest -q
 ```
 
 CI (`.github/workflows/ci.yml`): tests with a Redis service, Gitleaks secrets
-scan, compose validation and image build.
+scan, compose validation and image build. The workflow runs with a
+least-privilege `GITHUB_TOKEN` (`contents: read`, `pull-requests: read`; the
+latter is needed by Gitleaks to list a PR's commits).
 
 | File | Coverage |
 |---|---|
