@@ -148,6 +148,7 @@ Component responsibilities:
 │   ├── utils/                 # logging, pii, resilience, metrics, redis client
 │   └── whatsapp/              # meta client
 ├── tests/                     # pytest suite
+├── graphify-out/              # knowledge graph (code AST + docs), see README
 ├── qwen-service/              # GPU-only vLLM serving stack (alternative)
 ├── .github/workflows/ci.yml   # tests (+redis), secrets scan, compose + image build
 ├── Dockerfile                 # non-root image
